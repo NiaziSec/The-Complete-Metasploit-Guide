@@ -5,8 +5,6 @@ A comprehensive resource covering Metasploit Framework from core commands to dat
 > ⚠️ **Legal & Ethical Use**
 > Metasploit is a dual-use exploitation framework. Only point it at systems you own, systems you have explicit written authorization to test, or a clearly in-scope lab (Metasploitable, HackTheBox, TryHackMe, your own VM range). Unauthorized use is illegal in most jurisdictions regardless of intent.
 
-> 📌 **Scope note**: This guide documents framework *syntax* and legitimate authorized-testing workflow at the same level of detail you'd get from Metasploit's own docs (`docs.metasploit.com`) or Offensive Security's Metasploit Unleashed. It deliberately does **not** cover antivirus/EDR evasion techniques, payload obfuscation/encoding tricks, or step-by-step exploitation of specific vulnerabilities. Those provide direct uplift for building working malware even when framed as pentest education, so they're out of scope here on purpose — not an oversight.
-
 ## Table of Contents
 - [Core Commands](#core-commands)
 - [Module Management](#module-management)
