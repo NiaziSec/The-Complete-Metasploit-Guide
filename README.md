@@ -35,20 +35,6 @@ A structured guide to the Metasploit Framework, covering safe lab setup, module 
 
 ---
 
-## Learning Objectives
-
-By the end of this guide, you should be able to:
-
-- Explain the roles of exploits, auxiliary modules, payloads, post modules, and sessions.
-- Search for and evaluate a Metasploit module before using it.
-- Configure required options such as `RHOSTS`, `RPORT`, `LHOST`, and `LPORT`.
-- Verify a suspected vulnerability before attempting exploitation.
-- Manage sessions, jobs, workspaces, scan results, and console logs.
-- Document evidence and recommend suitable defensive controls.
-- Complete an authorised EternalBlue training exercise without targeting real systems.
-
----
-
 ## Lab Safety and Scope
 
 Before starting, record the following information:
